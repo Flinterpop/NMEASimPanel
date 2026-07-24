@@ -3,6 +3,7 @@
 A touchscreen NMEA-0183 simulator for the **Elecrow CrowPanel Advance 7.0"**
 (ESP32-S3, 800x480 RGB panel with GT911 capacitive touch).
 https://www.elecrow.com/crowpanel-advance-7-hmi-esp32-ai-display-800x480-ai-ips-touch-screen.html
+
 https://www.amazon.ca/ELECROW-Dual-Core-Compatible-PlatformIO-MicroPython/dp/B0F8NFFH29?pd_rd_w=vGprm&content-id=amzn1.sym.128d8954-9caa-4387-9adf-38f1702b31a1&pf_rd_p=128d8954-9caa-4387-9adf-38f1702b31a1&pf_rd_r=XAMC2Z730PK0EFAN4H5K&pd_rd_wg=DsLqO&pd_rd_r=49bc8fb4-2989-4309-bb54-fa90ca3cfaff&pd_rd_i=B0F8NFFH29&th=1
 
 It generates GPS sentences with dead-reckoned motion and streams them out the
