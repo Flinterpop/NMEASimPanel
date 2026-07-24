@@ -1,10 +1,10 @@
 /*
- * NMEA_Sim -- touchscreen GPS NMEA simulator for the Elecrow CrowPanel
+ * NMEASimPanel -- touchscreen GPS NMEA simulator for the Elecrow CrowPanel
  * Advance 7.0" (ESP32-S3). First cut: GPS (RMC/GGA/VTG/GLL). AIS is next.
  *
  * The USB-C port (CH340 -> UART0 -> Serial0) is what a PC sees as a COM
- * port; the NMEA stream goes out there at NMEA_BAUD. Debug is OFF by
- * default so that COM port carries clean NMEA.
+ * port; the NMEA stream goes out there at the selected baud. Debug is OFF
+ * by default so that COM port carries clean NMEA.
  *
  * UI: input widgets for the INITIAL lat / lon / altitude / speed / heading,
  * Start / Stop / Reset, and a scrolling log of every sentence as it is sent.
@@ -300,7 +300,7 @@ static void build_ui(void) {
   lv_obj_set_style_bg_color(scr, lv_color_hex(0x101418), 0);
 
   lv_obj_t *title = lv_label_create(scr);
-  lv_label_set_text(title, "NMEA_Sim  --  GPS");
+  lv_label_set_text(title, "NMEASimPanel  --  GPS");
   lv_obj_set_style_text_color(title, lv_color_hex(0xE0E0E0), 0);
   lv_obj_set_pos(title, 12, 10);
 

@@ -1,4 +1,4 @@
-# NMEA_Sim
+# NMEASimPanel
 
 A touchscreen NMEA-0183 simulator for the **Elecrow CrowPanel Advance 7.0"**
 (ESP32-S3, 800x480 RGB panel with GT911 capacitive touch).
@@ -134,7 +134,7 @@ $GPGLL,4515.6805,N,06429.4965,W,204312,A,A*56
 
 | File | Role |
 |---|---|
-| `NMEA_Sim.ino` | LVGL user interface and the 1 Hz emit loop |
+| `NMEASimPanel.ino` | LVGL user interface and the 1 Hz emit loop |
 | `nmea_sim.h/.cpp` | Simulator core: state, motion, sentence builders. **No Arduino dependency** — compiles and runs on a PC |
 | `crowpanel_bsp.h/.cpp` | Board support: RGB panel, GT911 touch, backlight |
 | `test/test_nmea.cpp` | Host-side test for the simulator core |

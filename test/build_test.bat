@@ -1,5 +1,5 @@
 @echo off
-REM Build and run the host-side tests for the NMEA_Sim simulator core.
+REM Build and run the host-side tests for the NMEASimPanel simulator core.
 REM nmea_sim.cpp has no Arduino dependency, so it compiles with plain MSVC.
 REM Adjust VSPATH below if Visual Studio is installed elsewhere.
 
