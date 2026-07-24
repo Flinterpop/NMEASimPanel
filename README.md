@@ -54,31 +54,74 @@ the port your PC enumerates. Debug output is compiled out by default
 
 ---
 
-## Building
+## Setting up the toolchain
 
-**FQBN**
+Everything needed to rebuild the Arduino environment from scratch lives in
+`env/`. On a fresh machine, install the [Arduino IDE](https://www.arduino.cc/en/software)
+(or standalone `arduino-cli`), then run:
 
+```powershell
+.\env\setup_env.ps1 -Verify
 ```
-esp32:esp32:elecrow_crowpanel_7:PSRAM=enabled
-```
 
-**Libraries** (all in the Arduino sketchbook `libraries/` folder):
+That installs the pinned core and libraries, puts `lv_conf.h` where LVGL can
+find it, applies the board-definition PSRAM fix, and compiles the sketch to
+prove the result works. It is safe to re-run — every step is idempotent and
+anything it would overwrite is backed up to `.bak` first.
 
-- `lvgl` 8.3.3 — plus `lv_conf.h` sitting *beside* the `lvgl` folder, not
-  inside it (that is where `lv_conf_internal.h`'s `../../lv_conf.h` resolves)
-- `TAMC_GT911` — touch controller
-- `PCA9557` — I/O expander used for the touch reset line
+| `env/` file | Purpose |
+|---|---|
+| `setup_env.ps1` | Installs and configures everything below |
+| `lv_conf.h` | LVGL configuration for this panel — **not** obtainable from upstream |
+| `boards.local.txt` | The PSRAM board-definition fix |
 
-Command line:
+### What it installs
+
+| Component | Version | Source |
+|---|---|---|
+| ESP32 core | `esp32:esp32` **3.3.10** | [`package_esp32_index.json`](https://espressif.github.io/arduino-esp32/package_esp32_index.json) |
+| `lvgl` | **8.3.3** | Arduino library index |
+| `TAMC_GT911` | **1.0.2** | Arduino library index ([source](https://github.com/TAMCTec/gt911-arduino)) |
+| `PCA9557-arduino` | **1.0.0** | Arduino library index |
+
+Versions are pinned because these are what the project was built and tested
+against. Newer ones may work but are unverified — in particular the ESP32 core
+moved to IDF 5.5, which is what broke LovyanGFX for this board.
+
+### Manual setup
+
+If you would rather not run the script:
 
 ```sh
-arduino-cli compile --fqbn esp32:esp32:elecrow_crowpanel_7:PSRAM=enabled .
-arduino-cli upload -p COM25 --fqbn esp32:esp32:elecrow_crowpanel_7:PSRAM=enabled .
+# 1. ESP32 core
+arduino-cli core update-index --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+arduino-cli core install esp32:esp32@3.3.10 --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+
+# 2. Libraries
+arduino-cli lib install "lvgl@8.3.3" "TAMC_GT911@1.0.2" "PCA9557-arduino@1.0.0"
 ```
 
-Footprint: ~42% flash, ~24% RAM.
+3. Copy `env/lv_conf.h` into the sketchbook `libraries/` folder — **beside**
+   the `lvgl` folder, not inside it. `lvgl/src/lv_conf_internal.h` includes
+   `"../../lv_conf.h"`, which resolves to the libraries root:
 
-### Required board-definition fix (PSRAM)
+   ```
+   Documents/Arduino/libraries/
+   ├── lv_conf.h        <-- here
+   ├── lvgl/
+   ├── TAMC_GT911/
+   └── PCA9557-arduino/
+   ```
+
+   Settings that matter for this panel: `LV_COLOR_DEPTH 16`,
+   `LV_COLOR_16_SWAP 0` (the RGB565 framebuffer is not byte-swapped),
+   `LV_TICK_CUSTOM 1` driven by `millis()`, and `LV_FONT_UNSCII_8 1` for the
+   monospace status line.
+
+4. Copy `env/boards.local.txt` into the core directory, next to `boards.txt`:
+   `%LOCALAPPDATA%\Arduino15\packages\esp32\hardware\esp32\3.3.10\`
+
+### Why boards.local.txt is required
 
 The stock `elecrow_crowpanel_7` entry in the ESP32 core's `boards.txt` sets
 `psram_type=opi` but **never sets `build.memory_type`**, so it falls back to
@@ -90,17 +133,43 @@ E (116) quad_psram: PSRAM chip is not connected, or wrong PSRAM line mode
 ```
 
 PSRAM then reports 0 MB, and since the 800x480 framebuffer lives in PSRAM the
-display never comes up. Fix by creating `boards.local.txt` next to `boards.txt`
-in the core directory
-(`.../packages/esp32/hardware/esp32/<ver>/boards.local.txt`):
+display never comes up. `boards.local.txt` is an additive override file the
+core reads alongside `boards.txt`, so it fixes this without editing a
+core-managed file:
 
 ```
 elecrow_crowpanel_7.build.memory_type={build.boot}_{build.psram_type}
 elecrow_crowpanel_7.menu.PSRAM.disabled.build.psram_type=qspi
 ```
 
-**This file is lost whenever the ESP32 core is upgraded or reinstalled.** If
-the display suddenly stops working after a core update, check PSRAM first.
+> **This file is deleted whenever the ESP32 core is upgraded or reinstalled.**
+> If the display suddenly stops working after a core update, check PSRAM first
+> and re-run `env/setup_env.ps1`.
+
+---
+
+## Building
+
+**FQBN**
+
+```
+esp32:esp32:elecrow_crowpanel_7:PSRAM=enabled
+```
+
+```sh
+arduino-cli compile --fqbn esp32:esp32:elecrow_crowpanel_7:PSRAM=enabled .
+arduino-cli upload -p COM25 --fqbn esp32:esp32:elecrow_crowpanel_7:PSRAM=enabled .
+```
+
+The sketch folder does not need to live in the Arduino sketchbook — the CLI
+builds it from any path, and libraries still resolve from the sketchbook.
+
+Footprint: ~42% flash, ~24% RAM.
+
+A harmless notice during the build — `Precompiled library in
+".../lvgl/src/esp32s3" not found` — is LVGL's `library.json` declaring itself
+precompiled for an architecture that is not present; it falls back to building
+from source, which is what we want.
 
 ---
 
@@ -143,6 +212,7 @@ $GPGLL,4515.6805,N,06429.4965,W,204312,A,A*56
 | `nmea_sim.h/.cpp` | Simulator core: state, motion, sentence builders. **No Arduino dependency** — compiles and runs on a PC |
 | `crowpanel_bsp.h/.cpp` | Board support: RGB panel, GT911 touch, backlight |
 | `test/test_nmea.cpp` | Host-side test for the simulator core |
+| `env/` | Toolchain reconstruction: setup script, `lv_conf.h`, `boards.local.txt` |
 
 Keeping the core free of Arduino headers means sentence formatting and motion
 can be tested on a desktop compiler, where iteration is fast and failures are

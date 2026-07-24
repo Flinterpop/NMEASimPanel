@@ -1,0 +1,16 @@
+# Local fix for the Elecrow CrowPanel 7.0P board definition.
+#
+# The stock entry sets `menu.PSRAM.enabled.build.psram_type=opi` but never sets
+# `build.memory_type`, so it falls back to platform.txt's default
+# `build.memory_type={build.boot}_qspi` -> "dio_qspi". That links the QUAD PSRAM
+# driver against the module's OCTAL PSRAM, and boot fails with:
+#     E quad_psram: PSRAM chip is not connected, or wrong PSRAM line mode
+# leaving ESP.getPsramSize() == 0 on an ESP32-S3-WROOM-1-N4R8 that has 8 MB.
+#
+# 142 other boards in boards.txt set build.memory_type; this one was missed.
+# The combination we need (dio_opi) already exists in esp32s3-libs/3.3.10/.
+#
+# Delete this file to revert. It is lost if the esp32 core is reinstalled or
+# upgraded, so re-check PSRAM after any core update.
+elecrow_crowpanel_7.build.memory_type={build.boot}_{build.psram_type}
+elecrow_crowpanel_7.menu.PSRAM.disabled.build.psram_type=qspi
