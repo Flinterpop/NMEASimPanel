@@ -2,6 +2,7 @@
 
 A touchscreen NMEA-0183 simulator for the **Elecrow CrowPanel Advance 7.0"**
 (ESP32-S3, 800x480 RGB panel with GT911 capacitive touch).
+https://www.elecrow.com/crowpanel-advance-7-hmi-esp32-ai-display-800x480-ai-ips-touch-screen.html
 
 It generates GPS sentences with dead-reckoned motion and streams them out the
 USB-C port, which a PC sees as an ordinary COM port — so any chart plotter,
