@@ -1,0 +1,13 @@
+# Host test build artifacts
+test/*.exe
+test/*.obj
+test/*.pdb
+test/*.ilk
+*.obj
+
+# Arduino build output
+build/
+*.bin
+*.elf
+*.map
+*.hex
