@@ -10,7 +10,9 @@ logger, or test harness can consume it as if it were a real GPS receiver.
 This is the touchscreen successor to the headless
 [`ad_GPS_SerialSim`](https://github.com/Flinterpop/ad_GPS_SerialSim), which
 emitted `$GPRMC` + `$GPGGA` at 1 Hz with no UI.
+---
 
+<img width="3718" height="2594" alt="NMEA_simpanel" src="https://github.com/user-attachments/assets/1ec80002-a740-4663-8555-751e5ba5e1ca" />
 ---
 
 ## Features
