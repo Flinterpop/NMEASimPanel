@@ -44,6 +44,9 @@ transponder emits, so chart plotters demux them by talker id. That is why the
 **default baud is 38400**, the NMEA 0183-HS rate AIS runs at, rather than the
 4800 of a bare GPS talker.
 
+This is verified against a real chart plotter, not just on paper: both the GPS
+position and the AIS targets are consumed correctly off the single link.
+
 If an application insists on two separate inputs, split the one port PC-side
 on the leading character (`$` for GPS, `!` for AIS) into two virtual COM ports,
 or bridge to UDP. See `board_eval_waveshare_esp32s3_touch_lcd_7.md` for why the

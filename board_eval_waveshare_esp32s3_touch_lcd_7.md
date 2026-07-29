@@ -218,15 +218,20 @@ Either approach delivers two independent streams to two applications on the exis
 
 **Suggested order:** build `ais_sim` on the CrowPanel, prove the mixed stream against the actual consuming applications, and buy new hardware only if that demonstrably fails.
 
-> **Outcome.** This order was followed. `ais_sim` was built by porting the
-> validated WireCodecs `ais` encoder to fixed buffers, and `ais_play` was added
-> for recorded-capture replay. Both run on the existing CrowPanel over the single
-> link. The board was not purchased.
+> **Outcome — the recommendation held.** This order was followed. `ais_sim` was
+> built by porting the validated WireCodecs `ais` encoder to fixed buffers, and
+> `ais_play` was added for recorded-capture replay. Both run on the existing
+> CrowPanel over the single link.
 >
-> The one step still outstanding is the one this recommendation hinged on:
-> **proving the mixed stream against a real chart plotter.** Everything so far is
-> verified at the byte level — against the reference encoder, against the source
-> captures, and on the wire — but no actual consumer has demuxed it.
+> The step this recommendation hinged on is **complete: a real chart plotter
+> consumed the mixed stream, GPS and AIS both, on 2026-07-29.** That settles the
+> question the whole document was written to answer — one 38400-baud link
+> carrying interleaved `$GP...` and `!AIVDM` is sufficient, and the second USB
+> port is not needed. The board was not purchased.
+>
+> It also implicitly validates the type 5 and type 24 static path, since named
+> targets require them, and confirms a real receiver tolerates fragment spacing
+> at 1 Hz.
 
 ---
 
