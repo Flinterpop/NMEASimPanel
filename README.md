@@ -28,8 +28,8 @@ emitted `$GPRMC` + `$GPGGA` at 1 Hz with no UI.
   types **1** (Class A position), **18** (Class B position), **5** (static and
   voyage data, two fragments) and **24** A/B (Class B static data)
 - **AIS playback** — replay a recorded `.ais` capture instead of the simulated
-  targets, chosen from a dropdown, **at the rate it was recorded at**. GPS keeps
-  generating either way
+  targets, chosen from a dropdown, **at the rate it was recorded at**, with a
+  1x / 4x / 16x / 60x speed selector. GPS keeps generating either way
 - **Per-sentence enable/disable** — one toggle each, plus an AIS on/off switch
 - **Initial-condition entry** via on-screen numeric keypad: latitude,
   longitude, altitude, speed, heading
@@ -90,8 +90,17 @@ backwards; and messages outside the anchor span are clamped to the boundary
 rather than extrapolated, which otherwise overshoots the true duration several
 times over.
 
-Speed is `AIS_PLAY_SPEED` in the sketch (1.0 = real time). A log with fewer than
-two usable anchors falls back to a fixed 0.5 s interval.
+Speed is selectable in the panel — **1x / 4x / 16x / 60x** — and applies to a
+running log without restarting it or skipping messages, since only the gap to
+the *next* message is recomputed. At 60x that 142-minute capture replays in
+about two and a half minutes.
+
+A log with fewer than two usable anchors, or a zero span, falls back to a fixed
+0.5 s interval (also scaled by the speed selector).
+
+The emit loop releases up to 32 AIS sentences per 1 Hz tick, which is what 60x
+on a dense capture needs. That is comfortably inside the link budget: 38400
+baud carries 3840 bytes/s, and 32 AIS plus 4 GPS sentences is roughly 1800.
 
 ---
 
@@ -385,8 +394,6 @@ instead.
 
 - Per-target AIS editing in the UI (currently the traffic picture is seeded
   from a fixed table around own ship)
-- Playback speed control in the UI (fixed at `AIS_PLAY_SPEED` today; the AIS
-  panel has no room left, so this needs a layout rethink)
 - SD card playback, so captures need not be compiled in (see the pin caveat above)
 - More AIS types: 4 (base station), 21 (aid to navigation)
 - Additional GPS sentences (GSA, GSV)

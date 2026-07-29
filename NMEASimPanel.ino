@@ -50,11 +50,10 @@
  * the UTC in its base-station (type 4) messages. AIS_PLAY_DELAY_S is only the
  * fallback for a log with too few usable anchors.
  *
- * Speed 1.0 is real time, which means a 2.4-hour capture takes 2.4 hours --
- * correct for feeding a plotter, slow for a bench glance. Raise this to
- * compress it; the log loops either way. */
+ * Speed 1.0 is real time: a 2.4-hour capture takes 2.4 hours, correct for
+ * feeding a plotter but slow for a bench glance, so the panel offers
+ * multipliers. 60x turns that same capture into about two minutes. */
 #define AIS_PLAY_DELAY_S 0.5f
-#define AIS_PLAY_SPEED   1.0f
 
 #if NMEA_DEBUG
   #define DBG(...) Serial0.printf(__VA_ARGS__)
@@ -126,6 +125,11 @@ static bool     g_ais_on  = true;      /* AIS traffic on the shared link */
 /* 0 = simulated targets, 1..AIS_LOG_COUNT = replay AIS_LOGS[n-1]. GPS is
  * generated either way; playback only ever substitutes the AIS source. */
 static int      g_ais_source = 0;
+
+/* Playback speed multipliers offered in the panel; index into kPlaySpeeds. */
+static const float kPlaySpeeds[] = { 1.0f, 4.0f, 16.0f, 60.0f };
+static const char  kPlaySpeedOpts[] = "1x\n4x\n16x\n60x";
+static uint8_t     g_play_speed_idx = 0;   /* real time by default */
 static uint32_t g_enable_mask = 0;     /* bit i = NMEA_SENTENCES[i] enabled */
 
 static const uint32_t kBauds[] = { 4800u, 9600u, 38400u };
@@ -277,7 +281,8 @@ static void ais_source_event(lv_event_t *e) {
   if (g_ais_source > 0 && g_ais_source <= AIS_LOG_COUNT) {
     const AisLogDef *d = &AIS_LOGS[g_ais_source - 1];
     const int anchors = ais_play_init_original(&g_play, d->data, (size_t)d->len,
-                                               AIS_PLAY_DELAY_S, AIS_PLAY_SPEED, 1);
+                                               AIS_PLAY_DELAY_S,
+                                               kPlaySpeeds[g_play_speed_idx], 1);
     char m[96];
     if (anchors >= 2 && g_play.original) {
       snprintf(m, sizeof(m), "--- playback: %s, %lu lines, %lu min (%d anchors) ---",
@@ -294,6 +299,19 @@ static void ais_source_event(lv_event_t *e) {
 #endif
   g_ais_source = 0;
   log_push("--- AIS: simulated ---");
+}
+
+/* Retimes a running log in place -- no restart, no skipped messages. */
+static void play_speed_event(lv_event_t *e) {
+  if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) { return; }
+  const uint16_t idx = lv_dropdown_get_selected(lv_event_get_target(e));
+  if (idx >= (sizeof(kPlaySpeeds) / sizeof(kPlaySpeeds[0]))) { return; }
+  g_play_speed_idx = (uint8_t)idx;
+  ais_play_set_speed(&g_play, kPlaySpeeds[idx]);
+
+  char m[40];
+  snprintf(m, sizeof(m), "--- playback speed %gx ---", (double)kPlaySpeeds[idx]);
+  log_push(m);
 }
 
 static void baud_event(lv_event_t *e) {
@@ -409,17 +427,32 @@ static void build_ais_panel(lv_obj_t *scr) {
   }
 #endif
 
+  /* 308 px of content after padding, spent as:
+   *    switch   0..50
+   *    source  58..198   (140; 12-char names ~96 px + ~20 px chevron)
+   *    speed  206..262   (56; "60x" ~24 px + chevron)
+   *    label  270..308   (38; "100%" ~32 px)
+   * The chevron is drawn OVER the label rather than beside it, hence the
+   * generous slack on both dropdowns. */
   lv_obj_t *src = lv_dropdown_create(box);
   lv_dropdown_set_options(src, opts);
   lv_dropdown_set_selected(src, 0);
-  lv_obj_set_size(src, 170, 34);
+  lv_obj_set_size(src, 140, 34);
   lv_obj_set_pos(src, 58, 0);
   lv_obj_set_style_pad_ver(src, 6, 0);   /* keep the text off the borders */
   lv_obj_add_event_cb(src, ais_source_event, LV_EVENT_VALUE_CHANGED, nullptr);
 
-  /* Right edge of the 308 px of content left after padding. */
+  lv_obj_t *spd = lv_dropdown_create(box);
+  lv_dropdown_set_options(spd, kPlaySpeedOpts);
+  lv_dropdown_set_selected(spd, g_play_speed_idx);
+  lv_obj_set_size(spd, 56, 34);
+  lv_obj_set_pos(spd, 206, 0);
+  lv_obj_set_style_pad_ver(spd, 6, 0);
+  lv_obj_set_style_pad_left(spd, 4, 0);
+  lv_obj_add_event_cb(spd, play_speed_event, LV_EVENT_VALUE_CHANGED, nullptr);
+
   g_ais_lbl = lv_label_create(box);
-  lv_obj_set_pos(g_ais_lbl, 236, 9);
+  lv_obj_set_pos(g_ais_lbl, 270, 9);
   lv_label_set_text(g_ais_lbl, "--");
 }
 
@@ -521,8 +554,8 @@ static void ui_timer(lv_timer_t *t) {
     char a[48];
 #if HAVE_AIS_LOGS
     if (g_ais_source > 0) {
-      snprintf(a, sizeof(a), "%lu/%lu", (unsigned long)g_play.line,
-               (unsigned long)g_play.lines_total);
+      /* Percent, not n/total: only 38 px are left beside the speed selector. */
+      snprintf(a, sizeof(a), "%d%%", ais_play_percent(&g_play));
     } else
 #endif
     {
@@ -544,9 +577,14 @@ static void ui_timer(lv_timer_t *t) {
  * With AIS switched off the target world is frozen rather than advanced
  * silently, so re-enabling resumes smoothly instead of dumping a burst of
  * simultaneously-overdue reports. */
+/* 32 AIS lines per tick, not 12: at 60x a dense capture wants ~14 sentences a
+ * second and a lower cap would silently throttle it. The link can carry it --
+ * 38400 baud is 3840 B/s, and 32 AIS plus 4 GPS sentences is roughly 1800. */
+#define AIS_LINES_PER_TICK 32
+
 static void emit_once(void) {
   static char gps_lines[8][NMEA_LINE_MAX];
-  static char ais_lines[12][AIS_LINE_MAX];
+  static char ais_lines[AIS_LINES_PER_TICK][AIS_LINE_MAX];
 
   nmea_sim_tick(&g_sim, (float)EMIT_PERIOD_MS / 1000.0f);
   const int n = nmea_sim_build_enabled(&g_sim, g_enable_mask, gps_lines, 8);
@@ -566,14 +604,14 @@ static void emit_once(void) {
   if (g_ais_source > 0) {
     /* Replayed verbatim: multi-fragment messages stay intact because the
      * player never interprets what it is emitting. */
-    m = ais_play_due(&g_play, dt, ais_lines, 12);
+    m = ais_play_due(&g_play, dt, ais_lines, AIS_LINES_PER_TICK);
     if (m < 0) { m = 0; }
     g_ais.sentence_count += (uint32_t)m;
   } else
 #endif
   {
     ais_sim_tick(&g_ais, dt);
-    m = ais_sim_build_due(&g_ais, ais_lines, 12);   /* tallies internally */
+    m = ais_sim_build_due(&g_ais, ais_lines, AIS_LINES_PER_TICK);   /* tallies internally */
   }
 
   for (int i = 0; i < m; i++) {

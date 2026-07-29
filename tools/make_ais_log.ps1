@@ -71,11 +71,11 @@ foreach ($f in $files) {
     if ($lines.Count -eq 0) { Write-Warning "skipping $($f.Name): no sentences"; continue }
 
     # Display name for the dropdown: base name, de-underscored, kept short.
-    # 15 chars, not 22: LVGL draws the dropdown chevron OVER the label rather
-    # than reserving room for it, so a longer name gets its tail overprinted
-    # in the 170 px selector.
+    # 12 chars: LVGL draws the dropdown chevron OVER the label rather than
+    # reserving room for it, and the selector narrowed to 140 px to make room
+    # for the speed control beside it.
     $name = $f.BaseName -replace '[_]+', ' '
-    if ($name.Length -gt 15) { $name = $name.Substring(0, 15).TrimEnd() }
+    if ($name.Length -gt 12) { $name = $name.Substring(0, 12).TrimEnd() }
 
     $sym = "kAisLog$i"
     $null = $sb.AppendLine("/* $($f.Name): $($lines.Count) sentences */")

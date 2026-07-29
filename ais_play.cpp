@@ -297,14 +297,32 @@ void ais_play_rewind(AisPlay *p) {
  * max_lines. */
 static float next_gap_s(AisPlay *p) {
   assert(p != NULL);
-  if (!p->original) { return p->delay_s; }
+  /* speed is 0 after a plain ais_play_init(), which means "unset", not "stop". */
+  const float sp = (p->speed > 0.0f) ? p->speed : 1.0f;
+  if (!p->original) { return p->delay_s / sp; }
 
   const uint32_t t0 = ts_at(p, (p->line > 0u) ? p->line - 1u : 0u);
   const uint32_t t1 = ts_at(p, p->line);
   float gap = (t1 > t0) ? (float)(t1 - t0) : 0.0f;
-  gap /= (p->speed > 0.0f) ? p->speed : 1.0f;
+  gap /= sp;
   if (gap > AIS_PLAY_MAX_GAP_S) { gap = AIS_PLAY_MAX_GAP_S; }
   return gap;
+}
+
+void ais_play_set_speed(AisPlay *p, float speed) {
+  assert(p != NULL);
+  assert(speed > 0.0f);
+  if (p == NULL || speed <= 0.0f) { return; }
+  /* Position is untouched: only the gap to the NEXT message is recomputed, so
+   * retiming a running log does not restart or skip it. */
+  p->speed = speed;
+}
+
+int ais_play_percent(const AisPlay *p) {
+  assert(p != NULL);
+  if (p == NULL || p->lines_total == 0u) { return 0; }
+  const uint32_t done = (p->line < p->lines_total) ? p->line : p->lines_total;
+  return (int)((done * 100u) / p->lines_total);
 }
 
 int ais_play_due(AisPlay *p, float dt_sec,

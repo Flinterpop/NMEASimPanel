@@ -79,6 +79,13 @@ int ais_play_init_original(AisPlay *p, const char *data, size_t len,
  * two. Exposed so tests and the UI can sanity-check a reconstructed timeline. */
 uint32_t ais_play_span_s(const AisPlay *p);
 
+/* Change speed without disturbing playback position, so the UI can retime a
+ * running log. Applies to fixed-rate playback too. Ignored if speed <= 0. */
+void ais_play_set_speed(AisPlay *p, float speed);
+
+/* Progress through the log, 0..100. Returns 0 for an empty log. */
+int ais_play_percent(const AisPlay *p);
+
 /* Back to the first line; clears `finished`. Does not reset `emitted`. */
 void ais_play_rewind(AisPlay *p);
 
