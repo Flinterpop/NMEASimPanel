@@ -76,6 +76,18 @@ bool bsp_display_begin(void) {
 
   cfg.flags.fb_in_psram = 1;
 
+  /* Bounce buffers. Without these the RGB peripheral streams the whole 768 KB
+   * framebuffer straight out of PSRAM for every frame, and anything that
+   * writes to PSRAM at the same time -- an LVGL blit, above all a full-pane
+   * repaint -- starves the DMA. The panel then loses horizontal sync and the
+   * image shifts and stutters sideways.
+   *
+   * With a bounce buffer the DMA reads from small internal-SRAM blocks that
+   * the driver refills from PSRAM, which decouples scan-out from PSRAM
+   * contention. 10 lines each (16 KB, two of them) against 177 KB of free
+   * internal RAM. */
+  cfg.bounce_buffer_size_px = (size_t)BSP_SCREEN_W * 10u;
+
   if (esp_lcd_new_rgb_panel(&cfg, &s_panel) != ESP_OK) { return false; }
   if (esp_lcd_panel_reset(s_panel) != ESP_OK) { return false; }
   if (esp_lcd_panel_init(s_panel) != ESP_OK)  { return false; }

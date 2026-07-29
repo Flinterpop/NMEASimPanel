@@ -144,8 +144,19 @@ static lv_obj_t *g_status;
 static lv_obj_t *g_btn_start;
 static lv_obj_t *g_ais_lbl;
 
-/* Bounded FIFO of log text, trimmed a whole line at a time. */
-static char   g_logbuf[4096];
+/* Bounded FIFO of log text, trimmed a whole line at a time.
+ *
+ * 1024, not 4096. lv_textarea_set_text re-wraps, re-lays-out and re-renders
+ * the WHOLE string on every refresh, and that blocks the loop. Measured inside
+ * lv_timer_handler, the cost is close to linear in buffer size:
+ *
+ *     4096 B -> ~400 ms    1536 B -> ~210 ms
+ *     1024 B -> ~140 ms     768 B -> ~112 ms
+ *
+ * 1024 keeps the refresh to roughly a seventh of what it was while still
+ * filling most of the visible pane. Combined with the 1 s rate limit below,
+ * that is ~14% of wall time rather than a continuous stall. */
+static char   g_logbuf[1024];
 static size_t g_loglen = 0;
 static bool   g_log_dirty = false;
 
@@ -536,7 +547,13 @@ static void build_ui(void) {
 
 static void ui_timer(lv_timer_t *t) {
   (void)t;
-  if (g_log_dirty) {
+  /* Rewriting the log is by far the most expensive thing this timer does, so
+   * it is rate-limited independently of the status line. At 60x playback the
+   * log would otherwise be dirty on every tick. */
+  static uint32_t last_log_ms = 0;
+  const uint32_t now_ms = millis();
+  if (g_log_dirty && (now_ms - last_log_ms) >= 1000u) {
+    last_log_ms = now_ms;
     lv_textarea_set_text(g_log, g_logbuf);
     lv_obj_scroll_to_y(g_log, LV_COORD_MAX, LV_ANIM_OFF);  /* stick to bottom */
     g_log_dirty = false;
@@ -624,6 +641,13 @@ static void emit_once(void) {
 /* ------------------------------------------------------------------- */
 
 void setup(void) {
+  /* A burst of up to AIS_LINES_PER_TICK sentences is ~1600 bytes, which at
+   * 4800 baud is over three seconds of wire time. With the default TX buffer
+   * Serial0.print() blocks until the FIFO drains, stalling loop() -- LVGL then
+   * misses frames and the RGB panel tears. Buffering the whole burst lets the
+   * UART ISR drain it in the background while the UI keeps running. Must be
+   * called before begin(). */
+  Serial0.setTxBufferSize(4096);
   Serial0.begin(kBauds[kBaudDefaultIdx]);
   nmea_sim_defaults(&g_sim);
   ais_sim_defaults(&g_ais, g_sim.lat_deg, g_sim.lon_deg);

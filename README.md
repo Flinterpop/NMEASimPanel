@@ -363,6 +363,27 @@ to leave them alone.
 regardless of the selected NMEA baud, so a PC listening at 4800/9600/38400 sees
 one burst of garbage at power-on, then clean NMEA. Cosmetic.
 
+**The RGB panel needs a bounce buffer, or it tears.** With `fb_in_psram = 1`
+and no bounce buffer, the RGB peripheral streams the whole 768 KB framebuffer
+out of PSRAM every frame. Anything else writing to PSRAM at the same time — an
+LVGL blit, above all a full-pane repaint — starves that DMA, the panel loses
+horizontal sync, and the image shifts and stutters sideways. It looks like a
+timing or clock fault, and it is not.
+
+```c
+cfg.bounce_buffer_size_px = (size_t)BSP_SCREEN_W * 10u;
+```
+
+The DMA then reads from small internal-SRAM blocks the driver refills from
+PSRAM, decoupling scan-out from PSRAM contention. Two 16 KB buffers against
+~177 KB of free internal RAM.
+
+**Redrawing the log pane is expensive.** `lv_textarea_set_text` re-wraps and
+re-renders the entire buffer, and the cost is close to linear in its size:
+4096 B blocked `lv_timer_handler` for ~400 ms, 1024 B for ~140 ms. The log is
+therefore capped at 1 KB and refreshed at most once a second. If you enlarge
+it, measure — a 4 KB scrollback makes the UI visibly unresponsive.
+
 **Never drive GPIO 26-32 or 33-37.** GPIO 26-32 are the SPI flash bus and
 33-37 are the octal PSRAM bus. Driving any of them stalls the flash cache and
 the board boot-loops forever on `TG1WDT_SYS_RST`. The variant's
