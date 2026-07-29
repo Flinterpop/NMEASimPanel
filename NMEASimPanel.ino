@@ -345,7 +345,10 @@ static void build_ui(void) {
   lv_obj_set_style_bg_color(scr, lv_color_hex(0x101418), 0);
 
   lv_obj_t *title = lv_label_create(scr);
-  lv_label_set_text(title, "NMEASimPanel  --  GPS + AIS");
+  /* Must fit in the 178 px before the Baud label at x=190. "-- GPS + AIS"
+   * overran it and overprinted the label; the mode is already obvious from
+   * the sentence toggles and the AIS panel, so the bare name is enough. */
+  lv_label_set_text(title, "NMEASimPanel");
   lv_obj_set_style_text_color(title, lv_color_hex(0xE0E0E0), 0);
   lv_obj_set_pos(title, 12, 10);
 
