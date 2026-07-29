@@ -46,9 +46,15 @@
 
 #define NMEA_DEBUG      0      /* 1 = also print status to Serial0 (dirties NMEA) */
 #define EMIT_PERIOD_MS  1000u  /* 1 Hz */
-/* The captures carry no per-line timestamps, so playback runs at a fixed rate.
- * 0.5 s gives 2 sentences per 1 Hz tick, close to a busy real channel. */
+/* Playback reproduces the rate the capture was recorded at, reconstructed from
+ * the UTC in its base-station (type 4) messages. AIS_PLAY_DELAY_S is only the
+ * fallback for a log with too few usable anchors.
+ *
+ * Speed 1.0 is real time, which means a 2.4-hour capture takes 2.4 hours --
+ * correct for feeding a plotter, slow for a bench glance. Raise this to
+ * compress it; the log loops either way. */
 #define AIS_PLAY_DELAY_S 0.5f
+#define AIS_PLAY_SPEED   1.0f
 
 #if NMEA_DEBUG
   #define DBG(...) Serial0.printf(__VA_ARGS__)
@@ -270,10 +276,18 @@ static void ais_source_event(lv_event_t *e) {
 #if HAVE_AIS_LOGS
   if (g_ais_source > 0 && g_ais_source <= AIS_LOG_COUNT) {
     const AisLogDef *d = &AIS_LOGS[g_ais_source - 1];
-    ais_play_init(&g_play, d->data, (size_t)d->len, AIS_PLAY_DELAY_S, 1);
-    char m[64];
-    snprintf(m, sizeof(m), "--- playback: %s (%lu lines) ---",
-             d->name, (unsigned long)g_play.lines_total);
+    const int anchors = ais_play_init_original(&g_play, d->data, (size_t)d->len,
+                                               AIS_PLAY_DELAY_S, AIS_PLAY_SPEED, 1);
+    char m[96];
+    if (anchors >= 2 && g_play.original) {
+      snprintf(m, sizeof(m), "--- playback: %s, %lu lines, %lu min (%d anchors) ---",
+               d->name, (unsigned long)g_play.lines_total,
+               (unsigned long)(ais_play_span_s(&g_play) / 60u), anchors);
+    } else {
+      /* Too few base-station messages to recover a timeline. */
+      snprintf(m, sizeof(m), "--- playback: %s, %lu lines, fixed rate ---",
+               d->name, (unsigned long)g_play.lines_total);
+    }
     log_push(m);
     return;
   }

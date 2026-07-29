@@ -28,7 +28,8 @@ emitted `$GPRMC` + `$GPGGA` at 1 Hz with no UI.
   types **1** (Class A position), **18** (Class B position), **5** (static and
   voyage data, two fragments) and **24** A/B (Class B static data)
 - **AIS playback** — replay a recorded `.ais` capture instead of the simulated
-  targets, chosen from a dropdown. GPS keeps generating either way
+  targets, chosen from a dropdown, **at the rate it was recorded at**. GPS keeps
+  generating either way
 - **Per-sentence enable/disable** — one toggle each, plus an AIS on/off switch
 - **Initial-condition entry** via on-screen numeric keypad: latitude,
   longitude, altitude, speed, heading
@@ -72,11 +73,25 @@ captures already hold. The sketch builds without it via `__has_include`;
 playback is simply unavailable then. Three logs cost about 310 KB of flash,
 taking the sketch from 43% to 64% of the partition.
 
-The captures carry no per-line timestamps, so playback runs at a fixed 0.5 s
-interval (2 sentences per 1 Hz tick). Reproducing the original rate would mean
-decoding the type 4 base-station UTC embedded in the logs, and `ais_sim` is
-encode-only today. Lines are replayed verbatim and never interpreted, which is
-what keeps multi-fragment messages intact.
+Lines are replayed verbatim and never interpreted, which is what keeps
+multi-fragment messages intact.
+
+**Playback reproduces the rate the capture was recorded at.** The logs carry no
+per-line timestamps, so the timeline is reconstructed from the UTC inside their
+base-station (type 4) messages: `ais_play` recovers those as anchors and
+interpolates every message's time by index between them. `AIS_NanooseToVictoria`
+yields 181 usable anchors spanning 142 minutes, and replaying it takes 8552 s
+against a recovered span of 8551 s.
+
+Two details that came from real bugs in AIS_Streamer's replay and are preserved
+here: anchors are filtered to the longest non-decreasing run, because captures
+mix base stations whose clocks disagree and the outliers make playback jump
+backwards; and messages outside the anchor span are clamped to the boundary
+rather than extrapolated, which otherwise overshoots the true duration several
+times over.
+
+Speed is `AIS_PLAY_SPEED` in the sketch (1.0 = real time). A log with fewer than
+two usable anchors falls back to a fixed 0.5 s interval.
 
 ---
 
@@ -370,8 +385,8 @@ instead.
 
 - Per-target AIS editing in the UI (currently the traffic picture is seeded
   from a fixed table around own ship)
-- Original-rate playback, reconstructed from the type 4 base-station UTC in the
-  captures — needs an AIS decoder, which `ais_sim` does not have yet
+- Playback speed control in the UI (fixed at `AIS_PLAY_SPEED` today; the AIS
+  panel has no room left, so this needs a layout rethink)
 - SD card playback, so captures need not be compiled in (see the pin caveat above)
 - More AIS types: 4 (base station), 21 (aid to navigation)
 - Additional GPS sentences (GSA, GSV)

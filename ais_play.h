@@ -27,6 +27,16 @@
 
 #include "ais_sim.h"   /* AIS_LINE_MAX */
 
+/* Timing anchors recovered from base-station messages. 256 is ample: the
+ * bundled captures carry 63-552 of them and interpolation needs only enough
+ * to track drift, so a denser log is subsampled rather than rejected. */
+#define AIS_PLAY_MAX_ANCHORS 256
+
+typedef struct {
+  uint32_t line;            /* 0-based message index within the log */
+  uint32_t epoch;           /* UTC seconds; good until 2106 */
+} AisAnchor;
+
 typedef struct {
   const char *data;         /* log blob; not owned, must outlive the struct */
   size_t      len;
@@ -35,14 +45,39 @@ typedef struct {
   uint32_t    lines_total;
   uint32_t    emitted;      /* running tally across loops */
   float       due_s;        /* seconds until the next line is released */
-  float       delay_s;      /* fixed inter-sentence delay */
+  float       delay_s;      /* fixed inter-sentence delay / fallback */
   uint8_t     loop;         /* restart at the end instead of stopping */
   uint8_t     finished;     /* set when a non-looping log runs out */
+
+  /* Original-rate pacing. Unused (original = 0) for fixed-rate playback. */
+  uint8_t     original;     /* 1 = reproduce the recorded rate */
+  float       speed;        /* multiplier; 1.0 = real time */
+  AisAnchor   anchors[AIS_PLAY_MAX_ANCHORS];
+  int         anchor_count;
+  int         anchor_at;    /* cursor into anchors[], advances monotonically */
 } AisPlay;
 
-/* delay_s must be > 0. A log with no newline at all is treated as one line. */
+/* Fixed rate: one line every delay_s. delay_s must be > 0. A log with no
+ * newline at all is treated as one line. */
 void ais_play_init(AisPlay *p, const char *data, size_t len,
                    float delay_s, int loop);
+
+/* Reproduce the rate the log was recorded at, reconstructed from the UTC
+ * carried in its base-station (type 4) and UTC-response (type 11) messages.
+ * The captures have no per-line timestamps, so this is the only timing source
+ * available.
+ *
+ * `speed` scales playback (2.0 = twice as fast); must be > 0. Falls back to
+ * fixed `delay_s` pacing when fewer than two usable anchors are found.
+ *
+ * Returns the number of anchors kept, or -1 on bad args. A return of 0 or 1
+ * means the fallback is in effect. */
+int ais_play_init_original(AisPlay *p, const char *data, size_t len,
+                           float delay_s, float speed, int loop);
+
+/* Span in seconds between the first and last kept anchor; 0 if fewer than
+ * two. Exposed so tests and the UI can sanity-check a reconstructed timeline. */
+uint32_t ais_play_span_s(const AisPlay *p);
 
 /* Back to the first line; clears `finished`. Does not reset `emitted`. */
 void ais_play_rewind(AisPlay *p);
