@@ -5,6 +5,23 @@
 **Driving requirement:** two independent USB/COM ports on one device, so a PC can consume a GPS stream and an AIS stream separately
 **Verdict:** Meets the requirement. Verified at schematic netlist level. Recommended only if the two-port requirement is held firm — see *Recommendation*.
 
+> **Status update — the board was not bought, and the requirement dissolved.**
+>
+> The recommendation below was to build `ais_sim` first and buy hardware only if
+> the single-link approach failed. That was done, and it did not fail:
+> NMEASimPanel now emits GPS and AIS interleaved on one 38400-baud link, plus
+> recorded-capture playback, all on the existing CrowPanel. Nothing has needed a
+> second COM port.
+>
+> This document is kept as the record of *why* the second port was not needed and
+> what the alternative would have cost. The schematic analysis in sections 4–5
+> remains accurate for the Waveshare V1.2 board should the question return —
+> particularly the GPIO19/20 finding, which is the whole basis of the comparison.
+>
+> One caveat that aged: section 7 assumed the AIS work was still ahead. It is
+> done, and the pure-logic layer did port as predicted — `ais_sim` and `ais_play`
+> have no Arduino dependency and are host-tested.
+
 ---
 
 ## 1. Why this board was evaluated
@@ -142,7 +159,7 @@ CH343P TXD/RXD -> CH_TXD / CH_RXD -> U13 FSUSB42UMX
 
 ## 7. Impact on NMEASimPanel if ported
 
-**Unaffected.** The pure-logic layer moves untouched by design — `nmea_sim.h` / `nmea_sim.cpp`, the planned `ais_sim`, and the PC-side unit tests in `test/` have no Arduino or board dependencies. This is the payoff of the existing separation.
+**Unaffected.** The pure-logic layer moves untouched by design — `nmea_sim`, `ais_sim`, `ais_play` and the PC-side unit tests in `test/` have no Arduino or board dependencies. This is the payoff of the existing separation. (Written when only `nmea_sim` existed; the prediction held for the two modules added since.)
 
 **Requires rework — confined to `crowpanel_bsp.cpp`:**
 
@@ -197,9 +214,19 @@ Expected landed cost roughly CAD $70–90 based on the €44.90 anchor.
 
 Either approach delivers two independent streams to two applications on the existing hardware, today.
 
-**The gating work is the same either way:** `ais_sim` does not exist yet. AIS does not fit the current sentence registry — it needs a multi-target state table, 6-bit-ASCII payload armouring, multi-fragment sentences for type 5, and a non-1 Hz emission schedule. That is the critical path regardless of which board it runs on.
+**The gating work is the same either way:** `ais_sim` does not exist yet *(at time of writing)*. AIS does not fit the current sentence registry — it needs a multi-target state table, 6-bit-ASCII payload armouring, multi-fragment sentences for type 5, and a non-1 Hz emission schedule. That is the critical path regardless of which board it runs on.
 
 **Suggested order:** build `ais_sim` on the CrowPanel, prove the mixed stream against the actual consuming applications, and buy new hardware only if that demonstrably fails.
+
+> **Outcome.** This order was followed. `ais_sim` was built by porting the
+> validated WireCodecs `ais` encoder to fixed buffers, and `ais_play` was added
+> for recorded-capture replay. Both run on the existing CrowPanel over the single
+> link. The board was not purchased.
+>
+> The one step still outstanding is the one this recommendation hinged on:
+> **proving the mixed stream against a real chart plotter.** Everything so far is
+> verified at the byte level — against the reference encoder, against the source
+> captures, and on the wire — but no actual consumer has demuxed it.
 
 ---
 
