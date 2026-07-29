@@ -12,9 +12,9 @@
     64 KB, and the captures exceed that. Adjacent-literal concatenation has no
     such limit, so the generated header stays portable to the host toolchain.
 
-    The generated header is gitignored -- the captures are real recorded
-    traffic and this repo is public. Re-run this script after changing the
-    recordings.
+    The captures themselves are committed under AIS_Recordings/; the generated
+    header is gitignored as a build artifact, since it only duplicates their
+    bytes. Re-run this script after adding or changing a recording.
 
 .PARAMETER Source
     Directory of .ais / .txt captures. Default: AIS_Recordings next to the repo root.

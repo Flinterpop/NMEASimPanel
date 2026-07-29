@@ -318,7 +318,10 @@ static lv_obj_t *make_button(lv_obj_t *parent, const char *text, lv_coord_t x,
                              lv_coord_t y, lv_palette_t color,
                              lv_event_cb_t cb) {
   lv_obj_t *btn = lv_btn_create(parent);
-  lv_obj_set_size(btn, 95, 56);
+  /* 44, not 56: the AIS panel above needs the vertical room for its dropdown,
+   * which is taller than a switch and was overflowing into these buttons. The
+   * buttons are created last, so they drew on top and hid it. */
+  lv_obj_set_size(btn, 95, 44);
   lv_obj_set_pos(btn, x, y);
   lv_obj_set_style_bg_color(btn, lv_palette_main(color), 0);
   lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, nullptr);
@@ -367,14 +370,16 @@ static void build_sentence_toggles(lv_obj_t *scr) {
  * between the sentence toggles (ends 346) and the buttons (start 392). */
 static void build_ais_panel(lv_obj_t *scr) {
   lv_obj_t *box = lv_obj_create(scr);
-  lv_obj_set_size(box, 320, 38);
+  /* 48 tall (350..398): a dropdown needs more height than a switch, and at 38
+   * it spilled past the box into the buttons below. */
+  lv_obj_set_size(box, 320, 48);
   lv_obj_set_pos(box, 12, 350);
   lv_obj_set_style_pad_all(box, 6, 0);
   lv_obj_clear_flag(box, LV_OBJ_FLAG_SCROLLABLE);
 
   lv_obj_t *sw = lv_switch_create(box);
   lv_obj_set_size(sw, 50, 26);
-  lv_obj_set_pos(sw, 0, 0);
+  lv_obj_set_pos(sw, 0, 4);
   if (g_ais_on) { lv_obj_add_state(sw, LV_STATE_CHECKED); }
   lv_obj_add_event_cb(sw, ais_event, LV_EVENT_VALUE_CHANGED, nullptr);
 
@@ -393,13 +398,14 @@ static void build_ais_panel(lv_obj_t *scr) {
   lv_obj_t *src = lv_dropdown_create(box);
   lv_dropdown_set_options(src, opts);
   lv_dropdown_set_selected(src, 0);
-  lv_obj_set_size(src, 170, 26);
+  lv_obj_set_size(src, 170, 34);
   lv_obj_set_pos(src, 58, 0);
+  lv_obj_set_style_pad_ver(src, 6, 0);   /* keep the text off the borders */
   lv_obj_add_event_cb(src, ais_source_event, LV_EVENT_VALUE_CHANGED, nullptr);
 
   /* Right edge of the 308 px of content left after padding. */
   g_ais_lbl = lv_label_create(box);
-  lv_obj_set_pos(g_ais_lbl, 236, 5);
+  lv_obj_set_pos(g_ais_lbl, 236, 9);
   lv_label_set_text(g_ais_lbl, "--");
 }
 
@@ -450,9 +456,11 @@ static void build_ui(void) {
   build_ais_panel(scr);
 
   /* Buttons across the bottom of the left column. */
-  g_btn_start = make_button(scr, "START",  12,  392, LV_PALETTE_BLUE, start_event);
-  make_button(scr, "STOP",  120, 392, LV_PALETTE_RED,  stop_event);
-  make_button(scr, "RESET", 228, 392, LV_PALETTE_GREY, reset_event);
+  /* Bottom band: toggles 238..346, AIS panel 350..398, buttons 404..448,
+   * leaving a 32 px margin to the 480 px screen edge. */
+  g_btn_start = make_button(scr, "START",  12,  404, LV_PALETTE_BLUE, start_event);
+  make_button(scr, "STOP",  120, 404, LV_PALETTE_RED,  stop_event);
+  make_button(scr, "RESET", 228, 404, LV_PALETTE_GREY, reset_event);
 
   /* Right: monospace status line + scrolling sent-sentence log. */
   g_status = lv_label_create(scr);

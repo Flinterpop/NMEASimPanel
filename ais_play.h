@@ -8,9 +8,10 @@
  * them.
  *
  * The log is a NUL-terminated blob of newline-separated sentences, normally a
- * header generated from a .ais capture by tools/make_ais_log.ps1. On the
- * ESP32 a `const char[]` lives in flash and is directly addressable, so no
- * PROGMEM accessor is needed and the same pointer works on the host.
+ * header generated from the captures in AIS_Recordings/ by
+ * tools/make_ais_log.ps1. On the ESP32 a `const char[]` lives in flash and is
+ * directly addressable, so no PROGMEM accessor is needed and the same pointer
+ * works on the host.
  *
  * Pacing is cooperative, not threaded: the caller passes elapsed time and gets
  * back whatever is due. Nothing blocks, so the LVGL loop keeps running. This

@@ -12,14 +12,13 @@ build/
 *.map
 *.hex
 
-# Recorded AIS captures and the header generated from them. These are real
-# recorded traffic -- actual vessel identities and positions -- and this
-# repository is public, so they stay local. Regenerate the header with:
+# Generated from AIS_Recordings/ by tools/make_ais_log.ps1 -- a build artifact,
+# not a source: it is ~310 KB duplicating bytes the captures already hold.
+# Regenerate after adding or changing a recording:
 #     pwsh tools/make_ais_log.ps1
 # The sketch builds without it; playback is simply unavailable.
-AIS_Recordings/
 ais_log.h
 
-# Panel photographs (large, and may show recorded traffic in the log pane)
+# Panel photographs (several MB each)
 panelPhoto*.jpeg
 panelPhoto*.jpg

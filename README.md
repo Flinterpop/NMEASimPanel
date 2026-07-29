@@ -27,6 +27,8 @@ emitted `$GPRMC` + `$GPGGA` at 1 Hz with no UI.
 - **AIS traffic**: `!AIVDM` messages for a small table of simulated targets —
   types **1** (Class A position), **18** (Class B position), **5** (static and
   voyage data, two fragments) and **24** A/B (Class B static data)
+- **AIS playback** — replay a recorded `.ais` capture instead of the simulated
+  targets, chosen from a dropdown. GPS keeps generating either way
 - **Per-sentence enable/disable** — one toggle each, plus an AIS on/off switch
 - **Initial-condition entry** via on-screen numeric keypad: latitude,
   longitude, altitude, speed, heading
@@ -49,6 +51,32 @@ alternative — hardware with two USB ports — is not needed for this.
 AIS reporting rates are simplified from ITU-R M.1371's TDMA schedule: Class A
 position every 3 s under way (10 s when slow), Class B every 30 s, and static
 data every 360 s, with targets staggered so they do not all report at once.
+
+### AIS source: simulated or recorded
+
+The dropdown in the AIS panel selects the live simulator or any capture in
+`AIS_Recordings/`. Playback substitutes **only** the AIS source — GPS keeps
+generating, so a plotter never sees two conflicting own-ship positions.
+
+Recordings are compiled into the sketch as flash constants rather than read
+from the SD slot, which is unproven on this board: the SPI pins are inferred
+rather than vendor-confirmed and the slot has never been exercised. Regenerate
+the header after adding or changing a capture:
+
+```powershell
+pwsh tools/make_ais_log.ps1
+```
+
+`ais_log.h` is gitignored as a build artifact — it only duplicates bytes the
+captures already hold. The sketch builds without it via `__has_include`;
+playback is simply unavailable then. Three logs cost about 310 KB of flash,
+taking the sketch from 43% to 64% of the partition.
+
+The captures carry no per-line timestamps, so playback runs at a fixed 0.5 s
+interval (2 sentences per 1 Hz tick). Reproducing the original rate would mean
+decoding the type 4 base-station UTC embedded in the logs, and `ais_sim` is
+encode-only today. Lines are replayed verbatim and never interpreted, which is
+what keeps multi-fragment messages intact.
 
 ---
 
@@ -231,9 +259,13 @@ $GPGLL,4515.6805,N,06429.4965,W,204312,A,A*56
 | `NMEASimPanel.ino` | LVGL user interface and the 1 Hz emit loop |
 | `nmea_sim.h/.cpp` | GPS core: state, motion, sentence builders. **No Arduino dependency** — compiles and runs on a PC |
 | `ais_sim.h/.cpp` | AIS core: target table, motion, bit packing, 6-bit armor, `!AIVDM` framing. Also **no Arduino dependency** |
+| `ais_play.h/.cpp` | Recorded-log playback with cooperative (non-blocking) pacing. No Arduino dependency |
 | `crowpanel_bsp.h/.cpp` | Board support: RGB panel, GT911 touch, backlight |
+| `AIS_Recordings/` | Recorded `.ais` captures used by playback |
+| `tools/make_ais_log.ps1` | Generates `ais_log.h` from those captures |
 | `test/test_nmea.cpp` | Host-side test for the GPS core |
 | `test/test_ais.cpp` | Host-side test for the AIS core, with golden vectors |
+| `test/test_play.cpp` | Host-side test for playback pacing and log parsing |
 | `env/` | Toolchain reconstruction: setup script, `lv_conf.h`, `boards.local.txt` |
 
 Keeping the core free of Arduino headers means sentence formatting and motion
@@ -338,6 +370,9 @@ instead.
 
 - Per-target AIS editing in the UI (currently the traffic picture is seeded
   from a fixed table around own ship)
+- Original-rate playback, reconstructed from the type 4 base-station UTC in the
+  captures — needs an AIS decoder, which `ais_sim` does not have yet
+- SD card playback, so captures need not be compiled in (see the pin caveat above)
 - More AIS types: 4 (base station), 21 (aid to navigation)
 - Additional GPS sentences (GSA, GSV)
 - Optional turn rate control in the UI for circular tracks
