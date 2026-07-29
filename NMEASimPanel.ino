@@ -1,10 +1,15 @@
 /*
- * NMEASimPanel -- touchscreen GPS NMEA simulator for the Elecrow CrowPanel
- * Advance 7.0" (ESP32-S3). First cut: GPS (RMC/GGA/VTG/GLL). AIS is next.
+ * NMEASimPanel -- touchscreen GPS + AIS NMEA simulator for the Elecrow
+ * CrowPanel Advance 7.0" (ESP32-S3).
  *
  * The USB-C port (CH340 -> UART0 -> Serial0) is what a PC sees as a COM
  * port; the NMEA stream goes out there at the selected baud. Debug is OFF
  * by default so that COM port carries clean NMEA.
+ *
+ * GPS ($GP...) and AIS (!AIVDM) share the one link, interleaved -- which is
+ * exactly what a real AIS transponder emits, so chart plotters demux it by
+ * talker id. That is why the default baud is 38400, the NMEA 0183-HS rate
+ * AIS expects, rather than the 4800 of a bare GPS talker.
  *
  * UI: input widgets for the INITIAL lat / lon / altitude / speed / heading,
  * Start / Stop / Reset, and a scrolling log of every sentence as it is sent.
@@ -21,6 +26,7 @@
 
 #include "crowpanel_bsp.h"
 #include "nmea_sim.h"
+#include "ais_sim.h"
 
 /* ---- Configuration ------------------------------------------------ */
 
@@ -90,17 +96,22 @@ static bool lvgl_begin(void) {
 /* ---- Simulator + UI state ----------------------------------------- */
 
 static NmeaSim  g_sim;
-static bool     g_running = false;   /* set by START/STOP */
-static uint32_t g_enable_mask = 0;   /* bit i = NMEA_SENTENCES[i] enabled */
+static AisSim   g_ais;
+static bool     g_running = false;     /* set by START/STOP */
+static bool     g_ais_on  = true;      /* AIS traffic on the shared link */
+static uint32_t g_enable_mask = 0;     /* bit i = NMEA_SENTENCES[i] enabled */
 
 static const uint32_t kBauds[] = { 4800u, 9600u, 38400u };
-static const uint8_t  kBaudDefaultIdx = 1;   /* 9600 */
+/* 38400 is the NMEA 0183-HS rate AIS runs at; a mixed GPS+AIS stream has to
+ * use it, and GPS-only receivers cope with the higher rate fine. */
+static const uint8_t  kBaudDefaultIdx = 2;   /* 38400 */
 
 static lv_obj_t *ta_lat, *ta_lon, *ta_alt, *ta_spd, *ta_hdg;
 static lv_obj_t *g_kb;
 static lv_obj_t *g_log;
 static lv_obj_t *g_status;
 static lv_obj_t *g_btn_start;
+static lv_obj_t *g_ais_lbl;
 
 /* Bounded FIFO of log text, trimmed a whole line at a time. */
 static char   g_logbuf[4096];
@@ -189,6 +200,9 @@ static void set_running(bool run) {
 static void start_event(lv_event_t *e) {
   if (lv_event_get_code(e) != LV_EVENT_CLICKED) { return; }
   fields_to_sim();
+  /* Re-seed the traffic picture around wherever own ship now is, so targets
+   * appear on screen instead of thousands of miles away. */
+  ais_sim_defaults(&g_ais, g_sim.lat_deg, g_sim.lon_deg);
   set_running(true);
   log_push("--- START ---");
 }
@@ -203,6 +217,7 @@ static void reset_event(lv_event_t *e) {
   if (lv_event_get_code(e) != LV_EVENT_CLICKED) { return; }
   set_running(false);
   nmea_sim_defaults(&g_sim);
+  ais_sim_defaults(&g_ais, g_sim.lat_deg, g_sim.lon_deg);
   defaults_to_fields();
   g_loglen = 0; g_logbuf[0] = '\0'; g_log_dirty = true;
   log_push("--- RESET ---");
@@ -215,6 +230,13 @@ static void toggle_event(lv_event_t *e) {
   if (idx < 0 || idx >= NMEA_SENTENCE_COUNT) { return; }
   if (lv_obj_has_state(sw, LV_STATE_CHECKED)) { g_enable_mask |=  (1u << idx); }
   else                                        { g_enable_mask &= ~(1u << idx); }
+}
+
+static void ais_event(lv_event_t *e) {
+  if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) { return; }
+  lv_obj_t *sw = lv_event_get_target(e);
+  g_ais_on = lv_obj_has_state(sw, LV_STATE_CHECKED);
+  log_push(g_ais_on ? "--- AIS on ---" : "--- AIS off ---");
 }
 
 static void baud_event(lv_event_t *e) {
@@ -265,7 +287,10 @@ static lv_obj_t *make_button(lv_obj_t *parent, const char *text, lv_coord_t x,
 
 static void build_sentence_toggles(lv_obj_t *scr) {
   lv_obj_t *box = lv_obj_create(scr);
-  lv_obj_set_size(box, 320, 148);
+  /* 108 px: header at 0, then 2 rows of 36 ending at 88, inside the 92 px of
+   * content left after padding. Shortened from 148 to make room for the AIS
+   * panel below; a 5th sentence would push this back to 3 rows (144). */
+  lv_obj_set_size(box, 320, 108);
   lv_obj_set_pos(box, 12, 238);
   lv_obj_set_style_pad_all(box, 8, 0);
 
@@ -295,12 +320,32 @@ static void build_sentence_toggles(lv_obj_t *scr) {
   }
 }
 
+/* AIS enable switch plus a live target/sentence readout. Occupies the strip
+ * between the sentence toggles (ends 346) and the buttons (start 392). */
+static void build_ais_panel(lv_obj_t *scr) {
+  lv_obj_t *box = lv_obj_create(scr);
+  lv_obj_set_size(box, 320, 38);
+  lv_obj_set_pos(box, 12, 350);
+  lv_obj_set_style_pad_all(box, 6, 0);
+  lv_obj_clear_flag(box, LV_OBJ_FLAG_SCROLLABLE);
+
+  lv_obj_t *sw = lv_switch_create(box);
+  lv_obj_set_size(sw, 50, 26);
+  lv_obj_set_pos(sw, 0, 0);
+  if (g_ais_on) { lv_obj_add_state(sw, LV_STATE_CHECKED); }
+  lv_obj_add_event_cb(sw, ais_event, LV_EVENT_VALUE_CHANGED, nullptr);
+
+  g_ais_lbl = lv_label_create(box);
+  lv_obj_set_pos(g_ais_lbl, 60, 5);
+  lv_label_set_text(g_ais_lbl, "AIS");
+}
+
 static void build_ui(void) {
   lv_obj_t *scr = lv_scr_act();
   lv_obj_set_style_bg_color(scr, lv_color_hex(0x101418), 0);
 
   lv_obj_t *title = lv_label_create(scr);
-  lv_label_set_text(title, "NMEASimPanel  --  GPS");
+  lv_label_set_text(title, "NMEASimPanel  --  GPS + AIS");
   lv_obj_set_style_text_color(title, lv_color_hex(0xE0E0E0), 0);
   lv_obj_set_pos(title, 12, 10);
 
@@ -336,6 +381,7 @@ static void build_ui(void) {
   ta_hdg = make_field(form, "Heading",    144, "45.1");
 
   build_sentence_toggles(scr);
+  build_ais_panel(scr);
 
   /* Buttons across the bottom of the left column. */
   g_btn_start = make_button(scr, "START",  12,  392, LV_PALETTE_BLUE, start_event);
@@ -374,26 +420,55 @@ static void ui_timer(lv_timer_t *t) {
     lv_obj_scroll_to_y(g_log, LV_COORD_MAX, LV_ANIM_OFF);  /* stick to bottom */
     g_log_dirty = false;
   }
-  char s[96];
-  snprintf(s, sizeof(s), "%s  %02u:%02u:%02u  n=%lu   %.5f, %.5f",
+  char s[112];
+  snprintf(s, sizeof(s), "%s  %02u:%02u:%02u  gps=%lu ais=%lu  %.5f, %.5f",
            g_running ? "RUNNING" : "stopped",
            g_sim.hour, g_sim.minute, g_sim.second,
-           (unsigned long)g_sim.sentence_count, g_sim.lat_deg, g_sim.lon_deg);
+           (unsigned long)g_sim.sentence_count,
+           (unsigned long)g_ais.sentence_count,
+           g_sim.lat_deg, g_sim.lon_deg);
   lv_label_set_text(g_status, s);
+
+  if (g_ais_lbl != nullptr) {
+    char a[48];
+    snprintf(a, sizeof(a), "AIS  %d targets", g_ais.count);
+    lv_label_set_text(g_ais_lbl, a);
+  }
 }
 
 /* ---- Emit ---------------------------------------------------------- */
 
+/* One 1 Hz slot: GPS first, then whatever AIS traffic is due. Both go out the
+ * same link interleaved, which is what a real transponder does -- consumers
+ * demux by talker id.
+ *
+ * The line buffers are static: together they are ~2 KB, which is more than
+ * this task's stack should carry on every tick.
+ *
+ * With AIS switched off the target world is frozen rather than advanced
+ * silently, so re-enabling resumes smoothly instead of dumping a burst of
+ * simultaneously-overdue reports. */
 static void emit_once(void) {
-  nmea_sim_tick(&g_sim, (float)EMIT_PERIOD_MS / 1000.0f);
+  static char gps_lines[8][NMEA_LINE_MAX];
+  static char ais_lines[12][AIS_LINE_MAX];
 
-  char lines[8][NMEA_LINE_MAX];
-  const int n = nmea_sim_build_enabled(&g_sim, g_enable_mask, lines, 8);
+  nmea_sim_tick(&g_sim, (float)EMIT_PERIOD_MS / 1000.0f);
+  const int n = nmea_sim_build_enabled(&g_sim, g_enable_mask, gps_lines, 8);
   for (int i = 0; i < n; i++) {
-    Serial0.print(lines[i]);
+    Serial0.print(gps_lines[i]);
     Serial0.print("\r\n");
-    log_push(lines[i]);
+    log_push(gps_lines[i]);
     g_sim.sentence_count++;
+  }
+
+  if (!g_ais_on) { return; }
+
+  ais_sim_tick(&g_ais, (float)EMIT_PERIOD_MS / 1000.0f);
+  const int m = ais_sim_build_due(&g_ais, ais_lines, 12);
+  for (int i = 0; i < m; i++) {
+    Serial0.print(ais_lines[i]);
+    Serial0.print("\r\n");
+    log_push(ais_lines[i]);   /* ais_sim_build_due already tallied these */
   }
 }
 
@@ -402,6 +477,7 @@ static void emit_once(void) {
 void setup(void) {
   Serial0.begin(kBauds[kBaudDefaultIdx]);
   nmea_sim_defaults(&g_sim);
+  ais_sim_defaults(&g_ais, g_sim.lat_deg, g_sim.lon_deg);
 
   /* Enable every registered sentence by default (matches the toggles). */
   g_enable_mask = (NMEA_SENTENCE_COUNT >= 32)

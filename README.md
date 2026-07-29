@@ -24,14 +24,31 @@ emitted `$GPRMC` + `$GPGGA` at 1 Hz with no UI.
 ## Features
 
 - **GPS sentences**: `$GPRMC`, `$GPGGA`, `$GPVTG`, `$GPGLL` at 1 Hz
-- **Per-sentence enable/disable** — one toggle each
+- **AIS traffic**: `!AIVDM` messages for a small table of simulated targets —
+  types **1** (Class A position), **18** (Class B position), **5** (static and
+  voyage data, two fragments) and **24** A/B (Class B static data)
+- **Per-sentence enable/disable** — one toggle each, plus an AIS on/off switch
 - **Initial-condition entry** via on-screen numeric keypad: latitude,
   longitude, altitude, speed, heading
 - **Selectable baud**: 4800 / 9600 / 38400, switchable live
 - **Live scrolling log** of every sentence as it is sent
-- **Dead-reckoned motion** — position advances from speed and heading each tick
+- **Dead-reckoned motion** — own ship and every AIS target advance each tick
 
-Planned: **AIS** (the sentence registry is already structured for it).
+### GPS and AIS share one link
+
+Both streams go out the same COM port, interleaved — which is what a real AIS
+transponder emits, so chart plotters demux them by talker id. That is why the
+**default baud is 38400**, the NMEA 0183-HS rate AIS runs at, rather than the
+4800 of a bare GPS talker.
+
+If an application insists on two separate inputs, split the one port PC-side
+on the leading character (`$` for GPS, `!` for AIS) into two virtual COM ports,
+or bridge to UDP. See `board_eval_waveshare_esp32s3_touch_lcd_7.md` for why the
+alternative — hardware with two USB ports — is not needed for this.
+
+AIS reporting rates are simplified from ITU-R M.1371's TDMA schedule: Class A
+position every 3 s under way (10 s when slow), Class B every 30 s, and static
+data every 360 s, with targets staggered so they do not all report at once.
 
 ---
 
@@ -212,9 +229,11 @@ $GPGLL,4515.6805,N,06429.4965,W,204312,A,A*56
 | File | Role |
 |---|---|
 | `NMEASimPanel.ino` | LVGL user interface and the 1 Hz emit loop |
-| `nmea_sim.h/.cpp` | Simulator core: state, motion, sentence builders. **No Arduino dependency** — compiles and runs on a PC |
+| `nmea_sim.h/.cpp` | GPS core: state, motion, sentence builders. **No Arduino dependency** — compiles and runs on a PC |
+| `ais_sim.h/.cpp` | AIS core: target table, motion, bit packing, 6-bit armor, `!AIVDM` framing. Also **no Arduino dependency** |
 | `crowpanel_bsp.h/.cpp` | Board support: RGB panel, GT911 touch, backlight |
-| `test/test_nmea.cpp` | Host-side test for the simulator core |
+| `test/test_nmea.cpp` | Host-side test for the GPS core |
+| `test/test_ais.cpp` | Host-side test for the AIS core, with golden vectors |
 | `env/` | Toolchain reconstruction: setup script, `lv_conf.h`, `boards.local.txt` |
 
 Keeping the core free of Arduino headers means sentence formatting and motion
@@ -317,6 +336,8 @@ instead.
 
 ## Roadmap
 
-- AIS sentence generation (`!AIVDM`) — next
+- Per-target AIS editing in the UI (currently the traffic picture is seeded
+  from a fixed table around own ship)
+- More AIS types: 4 (base station), 21 (aid to navigation)
 - Additional GPS sentences (GSA, GSV)
 - Optional turn rate control in the UI for circular tracks
