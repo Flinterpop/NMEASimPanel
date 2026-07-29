@@ -27,11 +27,28 @@
 #include "crowpanel_bsp.h"
 #include "nmea_sim.h"
 #include "ais_sim.h"
+#include "ais_play.h"
+
+/* Recorded AIS logs, generated from AIS_Recordings/ by tools/make_ais_log.ps1.
+ * The header is gitignored (real captures, public repo), so the sketch has to
+ * build without it -- playback is simply unavailable then. */
+#if defined(__has_include)
+  #if __has_include("ais_log.h")
+    #include "ais_log.h"
+    #define HAVE_AIS_LOGS 1
+  #endif
+#endif
+#ifndef HAVE_AIS_LOGS
+  #define HAVE_AIS_LOGS 0
+#endif
 
 /* ---- Configuration ------------------------------------------------ */
 
-#define NMEA_DEBUG     0      /* 1 = also print status to Serial0 (dirties NMEA) */
-#define EMIT_PERIOD_MS 1000u  /* 1 Hz */
+#define NMEA_DEBUG      0      /* 1 = also print status to Serial0 (dirties NMEA) */
+#define EMIT_PERIOD_MS  1000u  /* 1 Hz */
+/* The captures carry no per-line timestamps, so playback runs at a fixed rate.
+ * 0.5 s gives 2 sentences per 1 Hz tick, close to a busy real channel. */
+#define AIS_PLAY_DELAY_S 0.5f
 
 #if NMEA_DEBUG
   #define DBG(...) Serial0.printf(__VA_ARGS__)
@@ -97,8 +114,12 @@ static bool lvgl_begin(void) {
 
 static NmeaSim  g_sim;
 static AisSim   g_ais;
+static AisPlay  g_play;
 static bool     g_running = false;     /* set by START/STOP */
 static bool     g_ais_on  = true;      /* AIS traffic on the shared link */
+/* 0 = simulated targets, 1..AIS_LOG_COUNT = replay AIS_LOGS[n-1]. GPS is
+ * generated either way; playback only ever substitutes the AIS source. */
+static int      g_ais_source = 0;
 static uint32_t g_enable_mask = 0;     /* bit i = NMEA_SENTENCES[i] enabled */
 
 static const uint32_t kBauds[] = { 4800u, 9600u, 38400u };
@@ -239,6 +260,28 @@ static void ais_event(lv_event_t *e) {
   log_push(g_ais_on ? "--- AIS on ---" : "--- AIS off ---");
 }
 
+/* Entry 0 is the live simulator; the rest are recordings, in AIS_LOGS order.
+ * Selecting a recording restarts it from the top. */
+static void ais_source_event(lv_event_t *e) {
+  if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) { return; }
+  const uint16_t idx = lv_dropdown_get_selected(lv_event_get_target(e));
+  g_ais_source = (int)idx;
+
+#if HAVE_AIS_LOGS
+  if (g_ais_source > 0 && g_ais_source <= AIS_LOG_COUNT) {
+    const AisLogDef *d = &AIS_LOGS[g_ais_source - 1];
+    ais_play_init(&g_play, d->data, (size_t)d->len, AIS_PLAY_DELAY_S, 1);
+    char m[64];
+    snprintf(m, sizeof(m), "--- playback: %s (%lu lines) ---",
+             d->name, (unsigned long)g_play.lines_total);
+    log_push(m);
+    return;
+  }
+#endif
+  g_ais_source = 0;
+  log_push("--- AIS: simulated ---");
+}
+
 static void baud_event(lv_event_t *e) {
   if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) { return; }
   lv_obj_t *dd = lv_event_get_target(e);
@@ -335,9 +378,29 @@ static void build_ais_panel(lv_obj_t *scr) {
   if (g_ais_on) { lv_obj_add_state(sw, LV_STATE_CHECKED); }
   lv_obj_add_event_cb(sw, ais_event, LV_EVENT_VALUE_CHANGED, nullptr);
 
+  /* Source: the live simulator, or one of the embedded recordings. Built at
+   * runtime so adding a capture needs no UI edit. */
+  char opts[192];
+  size_t used = (size_t)snprintf(opts, sizeof(opts), "Simulated");
+#if HAVE_AIS_LOGS
+  for (int i = 0; i < AIS_LOG_COUNT && used < sizeof(opts); i++) {
+    const int w = snprintf(opts + used, sizeof(opts) - used, "\n%s", AIS_LOGS[i].name);
+    if (w < 0) { break; }
+    used += (size_t)w;
+  }
+#endif
+
+  lv_obj_t *src = lv_dropdown_create(box);
+  lv_dropdown_set_options(src, opts);
+  lv_dropdown_set_selected(src, 0);
+  lv_obj_set_size(src, 170, 26);
+  lv_obj_set_pos(src, 58, 0);
+  lv_obj_add_event_cb(src, ais_source_event, LV_EVENT_VALUE_CHANGED, nullptr);
+
+  /* Right edge of the 308 px of content left after padding. */
   g_ais_lbl = lv_label_create(box);
-  lv_obj_set_pos(g_ais_lbl, 60, 5);
-  lv_label_set_text(g_ais_lbl, "AIS");
+  lv_obj_set_pos(g_ais_lbl, 236, 5);
+  lv_label_set_text(g_ais_lbl, "--");
 }
 
 static void build_ui(void) {
@@ -434,7 +497,15 @@ static void ui_timer(lv_timer_t *t) {
 
   if (g_ais_lbl != nullptr) {
     char a[48];
-    snprintf(a, sizeof(a), "AIS  %d targets", g_ais.count);
+#if HAVE_AIS_LOGS
+    if (g_ais_source > 0) {
+      snprintf(a, sizeof(a), "%lu/%lu", (unsigned long)g_play.line,
+               (unsigned long)g_play.lines_total);
+    } else
+#endif
+    {
+      snprintf(a, sizeof(a), "%d tgt", g_ais.count);
+    }
     lv_label_set_text(g_ais_lbl, a);
   }
 }
@@ -466,12 +537,27 @@ static void emit_once(void) {
 
   if (!g_ais_on) { return; }
 
-  ais_sim_tick(&g_ais, (float)EMIT_PERIOD_MS / 1000.0f);
-  const int m = ais_sim_build_due(&g_ais, ais_lines, 12);
+  const float dt = (float)EMIT_PERIOD_MS / 1000.0f;
+  int m = 0;
+
+#if HAVE_AIS_LOGS
+  if (g_ais_source > 0) {
+    /* Replayed verbatim: multi-fragment messages stay intact because the
+     * player never interprets what it is emitting. */
+    m = ais_play_due(&g_play, dt, ais_lines, 12);
+    if (m < 0) { m = 0; }
+    g_ais.sentence_count += (uint32_t)m;
+  } else
+#endif
+  {
+    ais_sim_tick(&g_ais, dt);
+    m = ais_sim_build_due(&g_ais, ais_lines, 12);   /* tallies internally */
+  }
+
   for (int i = 0; i < m; i++) {
     Serial0.print(ais_lines[i]);
     Serial0.print("\r\n");
-    log_push(ais_lines[i]);   /* ais_sim_build_due already tallied these */
+    log_push(ais_lines[i]);
   }
 }
 

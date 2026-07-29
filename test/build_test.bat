@@ -25,6 +25,10 @@ cl /nologo /EHsc /W4 /WX /D_CRT_SECURE_NO_WARNINGS /I "%~dp0.." ^
    "%~dp0test_ais.cpp" "%~dp0..\ais_sim.cpp" /Fe:"%~dp0test_ais.exe"
 if errorlevel 1 exit /b 1
 
+cl /nologo /EHsc /W4 /WX /D_CRT_SECURE_NO_WARNINGS /I "%~dp0.." ^
+   "%~dp0test_play.cpp" "%~dp0..\ais_play.cpp" /Fe:"%~dp0test_play.exe"
+if errorlevel 1 exit /b 1
+
 echo.
 echo ===== GPS / NMEA =====
 "%~dp0test_nmea.exe"
@@ -34,6 +38,11 @@ echo.
 echo ===== AIS =====
 "%~dp0test_ais.exe"
 call :note ais %%ERRORLEVEL%%
+
+echo.
+echo ===== AIS playback =====
+"%~dp0test_play.exe"
+call :note play %%ERRORLEVEL%%
 
 echo.
 if "%RC%"=="0" (echo BUILD_TEST: all suites passed) else (echo BUILD_TEST: FAILURES)
